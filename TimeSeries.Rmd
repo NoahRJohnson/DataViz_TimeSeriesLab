@@ -1,0 +1,238 @@
+---
+title: "Time Series Lab"
+author:
+- "Michael McCormack"
+- "Noah Johnson"
+date: "March 15, 2018"
+output: html_document
+---
+
+```{r, include = FALSE}
+library(install.load)
+install_load('tidyverse')
+install_load('reshape2')
+install_load('ggfortify')
+install_load('forecast')
+install_load('TSA')
+```
+
+## Step 1: Get the data.  
+Download from [website](https://cdn.rawgit.com/mikejt33/DataViz/246c2026/data/flights.csv.gz).
+```{r}
+flights <- read.csv('flights.csv.gz')
+```
+
+## Step 2: Prepare the data.  
+
+```{r}
+str(flights)
+unique(flights$X)
+```
+
+The X column is just NAs, so we can remove it.
+
+```{r}
+flights <- flights %>% select(-c(X))
+```
+
+*Are there any null values?
+
+```{r}
+sapply(flights, function(y) sum(is.na(y)))
+```
+
+If departure or arrival delay is NA, does that mean there was just 0 delay?
+
+```{r}
+head(flights %>% filter(is.na(ARR_DELAY)))
+```
+
+It looks like there are rows that have a flight date, and airline carrier, but NAs for delays and departure time. I'm not confident we can assume there was no delay. Maybe it just means the data enterer knew the date of the flight but not how long it took, nor if there were delays. So rather than converting these NAs to zeroes, let's just drop these rows.
+
+```{r}
+flights <- flights %>% drop_na()
+```
+
+Time series data needs to be over a regular time interval. Calculate the average departure delay time and/or average arrival delay time for each day of 2017.
+
+```{r}
+t <- flights %>% group_by(FL_DATE) %>% summarise(avgDepDelay=mean(DEP_DELAY))#, avgArrivDelay=mean(ARR_DELAY)
+
+plot(as.ts(t))
+```
+
+If you like, compare average delay times for different carriers or different airports by creating multiple time series.
+
+Let's look at Spirit Airlines (cheap) vs Delta Airlines (expensive)
+```{r}
+spirit.delays <- flights %>% filter(CARRIER=='NK') %>% group_by(FL_DATE) %>% summarise(avgDepDelay=mean(DEP_DELAY), avgArrivDelay=mean(ARR_DELAY))
+head(as.ts(spirit.delays))
+
+delta.delays <- flights %>% filter(CARRIER=='NK') %>% group_by(FL_DATE) %>% summarise(avgDepDelay=mean(DEP_DELAY), avgArrivDelay=mean(ARR_DELAY))
+```
+
+## Step 3: Create a ts object of the data.  
+Refer to the slides for tips on how to do this.
+```{r}
+
+```
+
+## Step 4: Plot the time series using base package and ggplot (advanced).
+Create a basic visualization of the time series.
+
+```{r}
+
+```
+
+## Step 5: Smooth the data to reduce noise and identify trends.
+
+### Create your own simple moving average for monthly data. Plot the smoothed data using base package. Plot both the originial and the smoothed data ggplot (advanced). 
+
+__Hints__
+
+* good StackOverflow reference for moving average in R: https://stackoverflow.com/questions/743812/calculating-moving-average
+
+* watch out for functions that may have been masked by other packages
+
+* ggplot: may need to convert data to long format to plot mutliple series  
+
+```{r}
+
+```
+
+__Questions__  
+1. How does the neighborhood size, i.e. the number of points in each localized subset, affect the amount of smoothing?  
+2. What happened to endpoints of the smoothed data?  
+
+### Advanced: Smooth the same data using Local Regression (loess). Plot smoothed data using base package. Plot all three series (original, smoothed by MA, and smoothed by loess) using ggplot (advanced).
+
+__Hint__  
+* loess() requires all predictors to be numerical so dates cannot be used  
+
+Try different values for the span argument and see how it affects the amount of smoothing.  
+
+```{r}
+
+```
+
+# Dive in Deeper to TimeSeries  
+
+For this portion of our lab we will be using data from the AirPassengers Dataset. This classic example dataset lists monthly totals of international airline passengers in thousands from 1949 to 1960.
+
+```{r}
+data(AirPassengers)
+```
+
+## Step 6: Make an inital TimeSeries Visual of the data  
+```{r}
+plot(AirPassengers, type="o", pch=20, ylab='Passengers (1000s)')
+```
+
+We can see that this time series is multiplicative, as the seasonal swings get larger and larger as the years go by. But exactly how long is one season? We can use the Fourier Transform to map our signal into the frequency domain, and figure this out.
+
+```{r}
+p <- periodogram(AirPassengers)
+```
+
+Looks like there is a large spike at a small frequency very close to zero. We can calculate the top frequencies and periods.
+
+```{r}
+topF <- data.frame(freq=p$freq, spec=p$spec) %>% top_n(5, spec) %>% arrange(desc(spec))
+topF
+
+periods <- 1 / topF$freq
+periods
+```
+
+Ok, great! But what unit of time is a period associated with? That depends on how frequently our data was sampled per year.
+
+```{r}
+frequency(AirPassengers)
+```
+
+Ok, so our airline passenger time series has 12 samples per year, i.e. it is monthly. So the periods correspond to months, and the top three periods detected are 12, 6, and 1 year. But wait, 12 years covers all of our data! And a 6-year season doesn't match what we saw visually in the plot. An annual pattern would make more sense. It turns out this occurs because of the general upwards trend in the data which is obscuring the smaller seasonal variation. This trend appears linear to our eye, so if we fit a linear model to our data and subtract the estimate from our signal, we should be able to recompute the periodogram with better results.
+
+```{r}
+trend <- lm(AirPassengers ~ c(1:length(AirPassengers)))
+
+plot(AirPassengers, main='Linear Model Fit', ylab='Passengers (1000s)')
+abline(trend$coefficients[[1]] - trend$coefficients[[2]]*12*1949, trend$coefficients[[2]]*12, lty='dashed', col='blue')
+
+plot(resid(trend), type="l", main='Residuals', ylab='Passengers (1000s)')
+```
+
+Since we're modelling our time series as a multiplicative case, we remove the trend by dividing by the fit values.
+
+```{r}
+p <- periodogram(AirPassengers / trend$fitted.values)
+
+topF <- data.frame(freq=p$freq, spec=p$spec) %>% top_n(5, spec) %>% arrange(desc(spec))
+topF
+
+periods <- 1 / topF$freq
+periods
+```
+
+Great, now the main seasonality detected is clearly 12 months. This also fits well with what we see graphically. We can use this knowledge in the next step.
+
+## Step 7: Compute the Moving Average of this data using forecast package and vizualize this
+
+The previous linear model was a rough fit. It was adequate to uncover the annual pattern in the data. Now we can get another estimate of the underlying trend in the data using a centered moving average, with a sliding window size exactly equal to the seasonality.
+
+```{r}
+# compute moving average with a window of 12 (the seasonal trend is annual)
+trend <- ma(AirPassengers, order = 12, centre = TRUE)
+
+plot(AirPassengers, main='Moving Average', ylab='Passengers (1000s)')
+lines(trend, col='blue')
+```
+
+## Step 8: Remove the Trend from the data and Visualize this  
+```{r}
+AirPassengers.detrend <- AirPassengers / trend
+plot(AirPassengers.detrend, main='Detrended Data', ylab='Passengers (1000s) / Trend')
+```
+
+## Step 9: Create a decomposition of the data by month
+
+We've already seen the trend found by the moving average technique. Now we can find the average of all the observed seasonal variations. Remembering that the seasonal window is 12 months, we put our data into a matrix with twelve columns, one per month, and take the average of each column. This average seasonal variation is taken as the "true" variation every year due to the month. 
+
+```{r}
+m <- t(matrix(data=AirPassengers.detrend, nrow=12))
+avgSeasonality <- colMeans(m, na.rm=TRUE)
+plot(as.ts(rep(avgSeasonality, 12)), main='Average Seasonality', ylab='Passengers (1000s) / Trend')
+```
+
+Lastly, there is the noise. By the multiplicative model, $Passengers = Trend * Seasonal * Noise$. So $Noise = \frac{Passengers}{Trend * Seasonal}$.
+
+```{r}
+noise <- AirPassengers / (trend * avgSeasonality)
+plot(noise, main='Noise', ylab='Passengers (1000s) / Trend')
+```
+
+Using these three pieces, we can recompose the original signal.
+
+```{r}
+AirPassengers.recomposed <- trend * avgSeasonality * noise
+
+par(mfrow=c(1,2))
+plot(AirPassengers.recomposed, main='Recomposed', ylab='Passengers (1000s)')
+
+plot(AirPassengers, main='Original', ylab='Passengers (1000s)')
+```
+
+These plots look the same, except for the ends. Some data in the recomposed series is missing at the ends, because the trend used to recompose it was computed using a moving average filter, which doesn't produce an estimate if there isn't enough data on either side of an observation.
+
+We can check that these are the same time series:
+```{r}
+sum(AirPassengers.recomposed - AirPassengers, na.rm = TRUE)
+```
+
+Yep, nice!
+
+We can also use the convenient decompose function to decompose our time series for us.
+
+```{r}
+decomposition <- decompose(AirPassengers, "multiplicative")
+plot(decomposition)
+```
