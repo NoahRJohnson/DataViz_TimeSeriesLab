@@ -35,6 +35,12 @@ The X column is just NAs, so we can remove it.
 flights <- flights %>% select(-c(X))
 ```
 
+FL_DATE clearly should be a Date object not a factor.
+
+```{r}
+flights <- flights %>% mutate(FL_DATE = as.Date(FL_DATE, format = "%Y-%m-%d"))
+```
+
 *Are there any null values?
 
 ```{r}
@@ -47,7 +53,7 @@ If departure or arrival delay is NA, does that mean there was just 0 delay?
 head(flights %>% filter(is.na(ARR_DELAY)))
 ```
 
-It looks like there are rows that have a flight date, and airline carrier, but NAs for delays and departure time. I'm not confident we can assume there was no delay. Maybe it just means the data enterer knew the date of the flight but not how long it took, nor if there were delays. So rather than converting these NAs to zeroes, let's just drop these rows.
+It looks like there are rows that have a flight date, and airline carrier, but NAs for delays and departure time. I'm not confident we can assume there was no delay. Maybe it just means the data recorder knew the date of the flight but not how long it took, nor if there were delays. So rather than converting these NAs to zeroes, let's just drop these rows.
 
 ```{r}
 flights <- flights %>% drop_na()
@@ -56,19 +62,34 @@ flights <- flights %>% drop_na()
 Time series data needs to be over a regular time interval. Calculate the average departure delay time and/or average arrival delay time for each day of 2017.
 
 ```{r}
-t <- flights %>% group_by(FL_DATE) %>% summarise(avgDepDelay=mean(DEP_DELAY))#, avgArrivDelay=mean(ARR_DELAY)
+t <- flights %>% group_by(FL_DATE) %>% summarise(avgDepDelay=mean(DEP_DELAY), avgArrivDelay=mean(ARR_DELAY))
 
-plot(as.ts(t))
+t %>% ggplot(aes(FL_DATE, avgDepDelay)) + 
+  geom_line() + 
+  labs(title = 'Departure Delays in 2017', x = '', y = 'Avg. Departure Delay')
+
+t %>% ggplot(aes(FL_DATE, avgArrivDelay)) + 
+  geom_line() + 
+  labs(title = 'Arrival Delays in 2017', x = '', y = 'Avg. Arrival Delay')
 ```
 
 If you like, compare average delay times for different carriers or different airports by creating multiple time series.
 
-Let's look at Spirit Airlines (cheap) vs Delta Airlines (expensive)
+Let's look at Spirit Airlines (cheap) vs Virgin America (expensive)
 ```{r}
-spirit.delays <- flights %>% filter(CARRIER=='NK') %>% group_by(FL_DATE) %>% summarise(avgDepDelay=mean(DEP_DELAY), avgArrivDelay=mean(ARR_DELAY))
-head(as.ts(spirit.delays))
+spirit.delays <- flights %>% filter(CARRIER=='NK') %>% group_by(FL_DATE) %>% summarise(avgDepDelay=mean(DEP_DELAY))
 
-delta.delays <- flights %>% filter(CARRIER=='NK') %>% group_by(FL_DATE) %>% summarise(avgDepDelay=mean(DEP_DELAY), avgArrivDelay=mean(ARR_DELAY))
+virgin.delays <- flights %>% filter(CARRIER=='VX') %>% group_by(FL_DATE) %>% summarise(avgDepDelay=mean(DEP_DELAY))
+
+par(mfrow=c(1,2))
+
+spirit.delays %>% ggplot(aes(FL_DATE, avgDepDelay)) + 
+  geom_line() + 
+  labs(title = 'Spirit Departure Delays', x = '', y = 'Avg. Departure Delay')
+
+virgin.delays %>% ggplot(aes(FL_DATE, avgDepDelay)) + 
+  geom_line() + 
+  labs(title = 'Virgin Departure Delays', x = '', y = 'Avg. Departure Delay')
 ```
 
 ## Step 3: Create a ts object of the data.  
