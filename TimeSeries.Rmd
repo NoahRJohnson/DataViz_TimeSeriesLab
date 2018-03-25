@@ -1,15 +1,16 @@
 ---
 title: "Time Series Lab"
 author:
-- "Michael McCormack"
 - "Noah Johnson"
+- "Michael McCormack"
 date: "March 15, 2018"
-output: html_document
+output: pdf_document
 ---
 
 ```{r, include = FALSE}
 library(install.load)
 install_load('tidyverse')
+install_load('gridExtra')
 install_load('reshape2')
 install_load('ggfortify')
 install_load('forecast')
@@ -41,7 +42,7 @@ FL_DATE clearly should be a Date object not a factor.
 flights <- flights %>% mutate(FL_DATE = as.Date(FL_DATE, format = "%Y-%m-%d"))
 ```
 
-*Are there any null values?
+Are there any null values?
 
 ```{r}
 sapply(flights, function(y) sum(is.na(y)))
@@ -59,55 +60,77 @@ It looks like there are rows that have a flight date, and airline carrier, but N
 flights <- flights %>% drop_na()
 ```
 
-Time series data needs to be over a regular time interval. Calculate the average departure delay time and/or average arrival delay time for each day of 2017.
+**Time series data needs to be over a regular time interval. Calculate the average departure delay time and/or average arrival delay time for each day of 2017.**
 
 ```{r}
-t <- flights %>% group_by(FL_DATE) %>% summarise(avgDepDelay=mean(DEP_DELAY), avgArrivDelay=mean(ARR_DELAY))
+delays <- flights %>% group_by(FL_DATE) %>% 
+  summarise(avgDepDelay=mean(DEP_DELAY), avgArrivDelay=mean(ARR_DELAY))
 
-t %>% ggplot(aes(FL_DATE, avgDepDelay)) + 
+departure.plot <- delays %>% ggplot(aes(FL_DATE, avgDepDelay)) + 
   geom_line() + 
   labs(title = 'Departure Delays in 2017', x = '', y = 'Avg. Departure Delay')
 
-t %>% ggplot(aes(FL_DATE, avgArrivDelay)) + 
+arrival.plot <- delays %>% ggplot(aes(FL_DATE, avgArrivDelay)) + 
   geom_line() + 
   labs(title = 'Arrival Delays in 2017', x = '', y = 'Avg. Arrival Delay')
+
+grid.arrange(departure.plot, arrival.plot, ncol=2)
 ```
 
-If you like, compare average delay times for different carriers or different airports by creating multiple time series.
+**Compare average delay times for different carriers or different airports by creating multiple time series.**
 
 Let's look at Spirit Airlines (cheap) vs Virgin America (expensive)
 ```{r}
-spirit.delays <- flights %>% filter(CARRIER=='NK') %>% group_by(FL_DATE) %>% summarise(avgDepDelay=mean(DEP_DELAY))
+spirit.delays <- flights %>% filter(CARRIER=='NK') %>% group_by(FL_DATE) %>%
+  summarise(avgDepDelay=mean(DEP_DELAY))
 
-virgin.delays <- flights %>% filter(CARRIER=='VX') %>% group_by(FL_DATE) %>% summarise(avgDepDelay=mean(DEP_DELAY))
+virgin.delays <- flights %>% filter(CARRIER=='VX') %>% group_by(FL_DATE) %>%
+  summarise(avgDepDelay=mean(DEP_DELAY))
 
-par(mfrow=c(1,2))
-
-spirit.delays %>% ggplot(aes(FL_DATE, avgDepDelay)) + 
+spirit.plot <- spirit.delays %>% ggplot(aes(FL_DATE, avgDepDelay)) + 
   geom_line() + 
   labs(title = 'Spirit Departure Delays', x = '', y = 'Avg. Departure Delay')
 
-virgin.delays %>% ggplot(aes(FL_DATE, avgDepDelay)) + 
+virgin.plot <- virgin.delays %>% ggplot(aes(FL_DATE, avgDepDelay)) + 
   geom_line() + 
   labs(title = 'Virgin Departure Delays', x = '', y = 'Avg. Departure Delay')
+
+grid.arrange(spirit.plot, virgin.plot, ncol=2)
 ```
 
-## Step 3: Create a ts object of the data.  
-Refer to the slides for tips on how to do this.
-```{r}
+## Step 3: Create a ts object of the data.
 
+We're going to choose to look at a time series of the average departure delays per day.
+```{r}
+delays.ts <- ts(delays$avgDepDelay, start = c(2017,1), frequency=365)
 ```
 
 ## Step 4: Plot the time series using base package and ggplot (advanced).
-Create a basic visualization of the time series.
 
+We already plotted departure delays in ggplot earlier. Here is the same plot, using base R.
 ```{r}
-
+plot(delays.ts, main = 'Departure Delays in 2017', xlab = '', ylab = 'Avg. Departure Delay')
 ```
 
 ## Step 5: Smooth the data to reduce noise and identify trends.
 
-### Create your own simple moving average for monthly data. Plot the smoothed data using base package. Plot both the originial and the smoothed data ggplot (advanced). 
+We can use the *ma* function from the forecast package to compute a simple moving average.
+```{r}
+sm.7 <- ma(delays.ts, order = 7) # average a week
+sm.31 <- ma(delays.ts, order = 31) # average a month
+
+par(mfrow=c(1,2))
+
+plot(delays$FL_DATE, sm.7, type='l', main = 'Moving Average (7 day window)', 
+     xlab = '', ylab = 'Avg. Departure Delay')
+
+plot(delays$FL_DATE, sm.31, type='l', main = 'Moving Average (31 day window)', 
+     xlab = '', ylab = 'Avg. Departure Delay')
+```
+
+Looks like there's an increase in average departure delays over the summer months.
+
+### Create your own simple moving average for monthly data. Plot both the original and the smoothed data with ggplot (advanced). 
 
 __Hints__
 
@@ -115,28 +138,108 @@ __Hints__
 
 * watch out for functions that may have been masked by other packages
 
-* ggplot: may need to convert data to long format to plot mutliple series  
+* ggplot: may need to convert data to long format to plot multiple series  
 
 ```{r}
+# Size of the sliding window used in this simple moving average filter
+window_size <- 31
 
+# The cumulative delay values
+cum_delays <- c(0, cumsum(delays.ts))
+
+manual.sm <- (cum_delays[(window_size+1):length(cum_delays)] - 
+                cum_delays[1:(length(cum_delays) - window_size)]) / window_size
+
+# pad with NAs on the edges
+manual.sm <- c(rep(NA, (window_size-1)/2), manual.sm, rep(NA, (window_size-1)/2))
+
+# Check if our manually computed smoothed data is the same as the output from ma()
+sum(manual.sm - sm.31, na.rm=T)
 ```
 
-__Questions__  
-1. How does the neighborhood size, i.e. the number of points in each localized subset, affect the amount of smoothing?  
-2. What happened to endpoints of the smoothed data?  
+Success! Now we'll plot the original data next to the filter output using ggplot.
+
+```{r}
+delays$sm <- manual.sm
+
+ma.plot <- delays %>% ggplot(aes(FL_DATE, sm)) +
+  geom_line() +
+  labs(title='Smoothed Data (31 day window)', x='', y='Avg. Departure Delay')
+
+grid.arrange(departure.plot + ggtitle('Original Data'), ma.plot, ncol=2)
+```
+
+__Questions__
+
+**1. How does the neighborhood size, i.e. the number of points in each localized subset, affect the amount of smoothing? ** 
+
+A larger neighborhood size leads to more smoothing.
+
+**2. What happened to endpoints of the smoothed data?**
+
+Endpoints are chopped off, since the filter cannot estimate them (not enough data around each point).
 
 ### Advanced: Smooth the same data using Local Regression (loess). Plot smoothed data using base package. Plot all three series (original, smoothed by MA, and smoothed by loess) using ggplot (advanced).
 
-__Hint__  
-* loess() requires all predictors to be numerical so dates cannot be used  
+__Hint__
 
-Try different values for the span argument and see how it affects the amount of smoothing.  
++ loess() requires all predictors to be numerical so dates cannot be used
 
++ Try different values for the span argument and see how it affects the amount of smoothing. 
+
+The span argument controls the sliding window size. A larger span parameter means a larger window is averaged, giving a smoother result.
 ```{r}
+loess10.delays <- loess(avgDepDelay ~ c(1:nrow(delays)), span=0.1, data=delays)
+loess10.predictions <- predict(loess10.delays)
 
+plot(delays$FL_DATE, delays$avgDepDelay, type = 'l', main = 'Loess 0.10 Span', 
+     xlab = '', ylab = 'Avg. Departure Delay')
+lines(loess10.predictions, x=delays$FL_DATE, col='blue')
 ```
 
-# Dive in Deeper to TimeSeries  
+```{r}
+loess25.delays <- loess(avgDepDelay ~ c(1:nrow(delays)), span=0.25, data=delays)
+loess25.predictions <- predict(loess25.delays)
+
+plot(delays$FL_DATE, delays$avgDepDelay, type = 'l', main = 'Loess 0.25 Span', 
+     xlab = '', ylab = 'Avg. Departure Delay')
+lines(loess25.predictions, x=delays$FL_DATE, col='blue')
+```
+
+```{r}
+loess50.delays <- loess(avgDepDelay ~ c(1:nrow(delays)), span=0.5, data=delays)
+loess50.predictions <- predict(loess50.delays)
+
+plot(delays$FL_DATE, delays$avgDepDelay, type = 'l', main = 'Loess 0.50 Span', 
+     xlab = '', ylab = 'Avg. Departure Delay')
+lines(loess50.predictions, x=delays$FL_DATE, col='blue')
+```
+
+```{r}
+loess75.delays <- loess(avgDepDelay ~ c(1:nrow(delays)), span=0.75, data=delays)
+loess75.predictions <- predict(loess75.delays)
+
+plot(delays$FL_DATE, delays$avgDepDelay, type = 'l', main = 'Loess 0.75 Span', 
+     xlab = '', ylab = 'Avg. Departure Delay')
+lines(loess75.predictions, x=delays$FL_DATE, col='blue')
+```
+
+We can see that the loess output is still very noisy with a span of 0.1, as expected, and smooths out as the span is increased. The output doesn't change much for spans greater than 0.5, so we'll use the 0.5 curve as our loess trend estimate.
+
+Now let's plot all three series using ggplot:
+```{r}
+delays$sm.loess <- loess50.predictions
+
+loess.plot <- delays %>% ggplot(aes(FL_DATE, sm.loess)) +
+  geom_line() +
+  labs(title='Loess (0.5 span)', x='', y='Avg. Departure Delay')
+
+grid.arrange(departure.plot + ggtitle('Original Data'), 
+             ma.plot + ggtitle('Moving Average (31 day window)'), 
+             loess.plot, ncol=2)
+```
+
+# Dive in Deeper to TimeSeries
 
 For this portion of our lab we will be using data from the AirPassengers Dataset. This classic example dataset lists monthly totals of international airline passengers in thousands from 1949 to 1960.
 
@@ -177,7 +280,8 @@ Ok, so our airline passenger time series has 12 samples per year, i.e. it is mon
 trend <- lm(AirPassengers ~ c(1:length(AirPassengers)))
 
 plot(AirPassengers, main='Linear Model Fit', ylab='Passengers (1000s)')
-abline(trend$coefficients[[1]] - trend$coefficients[[2]]*12*1949, trend$coefficients[[2]]*12, lty='dashed', col='blue')
+abline(trend$coefficients[[1]] - trend$coefficients[[2]]*12*1949, 
+       trend$coefficients[[2]]*12, lty='dashed', col='blue')
 
 plot(resid(trend), type="l", main='Residuals', ylab='Passengers (1000s)')
 ```
@@ -216,7 +320,9 @@ plot(AirPassengers.detrend, main='Detrended Data', ylab='Passengers (1000s) / Tr
 
 ## Step 9: Create a decomposition of the data by month
 
-We've already seen the trend found by the moving average technique. Now we can find the average of all the observed seasonal variations. Remembering that the seasonal window is 12 months, we put our data into a matrix with twelve columns, one per month, and take the average of each column. This average seasonal variation is taken as the "true" variation every year due to the month. 
+We've already decomposed the data into a trend and remainder using the moving average filter. To complete the decomposition we will decompose this remainder into seasonal and random components. 
+
+First, to find the seasonal component, we average all the observed seasonal swings. Remembering that the seasonal window is 12 months, we put our data into a matrix with twelve columns, one per month, and take the average of each column. This average seasonal variation is taken as the "true" variation every year due to the month, which gets multiplied by the overall trend.
 
 ```{r}
 m <- t(matrix(data=AirPassengers.detrend, nrow=12))
